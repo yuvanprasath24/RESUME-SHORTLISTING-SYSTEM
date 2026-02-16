@@ -1,0 +1,11 @@
+flask
+flask-cors
+scikit-learn
+pandas
+joblib
+numpy
+PyPDF2
+python-docx
+openpyxl
+sentence-transformers
+spacy

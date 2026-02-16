@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Resume Screening (Classical ML)</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 30px; max-width: 900px; }
+    textarea { width: 100%; min-height: 160px; margin-bottom: 12px; }
+    button { padding: 10px 16px; cursor: pointer; }
+    .result { margin-top: 20px; padding: 12px; border: 1px solid #ddd; }
+    .label { font-weight: bold; }
+  </style>
+</head>
+<body>
+  <h1>Resume Screening (Classical ML)</h1>
+  <form method="POST">
+    <label for="resume_text">Resume</label>
+    <textarea id="resume_text" name="resume_text" placeholder="Paste resume text here">{{ resume_text }}</textarea>
+
+    <label for="job_description">Job Description</label>
+    <textarea id="job_description" name="job_description" placeholder="Paste job description here">{{ job_description }}</textarea>
+
+    <button type="submit">Predict</button>
+  </form>
+
+  {% if prediction_label %}
+  <div class="result">
+    <div class="label">Prediction: {{ prediction_label }}</div>
+    <div>Confidence: {{ '%.2f'|format(confidence) }}</div>
+  </div>
+  {% endif %}
+</body>
+</html>
