@@ -61,49 +61,6 @@ if spacy is not None:
 
 ALLOWED_EXTS = {".txt", ".pdf", ".docx"}
 
-CATEGORY_KEYWORDS = {
-    "data science": "Data Science",
-    "machine learning": "Data Science",
-    "ai": "Data Science",
-    "ml": "Data Science",
-    "python developer": "Python Developer",
-    "python": "Python Developer",
-    "java developer": "Java Developer",
-    "java": "Java Developer",
-    "devops": "DevOps Engineer",
-    "cloud": "DevOps Engineer",
-    "aws": "DevOps Engineer",
-    "azure": "DevOps Engineer",
-    "gcp": "DevOps Engineer",
-    "dotnet": "DotNet Developer",
-    ".net": "DotNet Developer",
-    "c#": "DotNet Developer",
-    "sap": "SAP Developer",
-    "etl": "ETL Developer",
-    "hadoop": "Hadoop",
-    "database": "Database",
-    "sql": "Database",
-    "network security": "Network Security Engineer",
-    "security": "Network Security Engineer",
-    "web designing": "Web Designing",
-    "web design": "Web Designing",
-    "testing": "Testing",
-    "automation testing": "Automation Testing",
-    "business analyst": "Business Analyst",
-    "operations manager": "Operations Manager",
-    "pmo": "PMO",
-    "civil engineer": "Civil Engineer",
-    "mechanical engineer": "Mechanical Engineer",
-    "electrical engineering": "Electrical Engineering",
-    "hr": "HR",
-    "human resources": "HR",
-    "sales": "Sales",
-    "health and fitness": "Health and fitness",
-    "arts": "Arts",
-    "advocate": "Advocate",
-    "blockchain": "Blockchain",
-}
-
 SKILL_LIST = [
     "python",
     "java",
@@ -162,6 +119,87 @@ for skill in SKILL_LIST:
         pattern = re.compile(escaped, re.IGNORECASE)
     _SKILL_PATTERNS.append((skill, pattern))
 
+ROLE_PROFILES = {
+    "Sales Executive": {
+        "triggers": [
+            "sales executive",
+            "sales",
+            "business development",
+            "account executive",
+            "inside sales",
+        ],
+        "keywords": [
+            "sales",
+            "business development",
+            "lead generation",
+            "prospecting",
+            "crm",
+            "client relationship",
+            "negotiation",
+            "closing",
+            "revenue",
+            "pipeline",
+            "cold calling",
+            "b2b",
+            "b2c",
+        ],
+    },
+    "Data Scientist": {
+        "triggers": ["data scientist", "data science", "machine learning", "ml", "ai"],
+        "keywords": [
+            "python",
+            "machine learning",
+            "deep learning",
+            "tensorflow",
+            "pytorch",
+            "nlp",
+            "statistics",
+            "sql",
+            "modeling",
+            "data analysis",
+        ],
+    },
+    "Software Engineer": {
+        "triggers": ["software engineer", "developer", "backend", "frontend", "full stack"],
+        "keywords": [
+            "java",
+            "python",
+            "javascript",
+            "typescript",
+            "api",
+            "microservices",
+            "react",
+            "node",
+            "spring",
+            "git",
+        ],
+    },
+    "Cybersecurity Analyst": {
+        "triggers": ["cybersecurity", "security analyst", "soc", "ethical hacking"],
+        "keywords": [
+            "cybersecurity",
+            "ethical hacking",
+            "siem",
+            "incident response",
+            "network security",
+            "linux",
+            "vulnerability",
+            "threat",
+            "soc",
+            "pen testing",
+        ],
+    },
+}
+
+ROLE_FALLBACK_STOPWORDS = {
+    "and", "or", "the", "a", "an", "to", "for", "with", "of", "in", "on", "at",
+    "is", "are", "as", "by", "be", "this", "that", "from", "will", "must", "should",
+    "experience", "preferred", "required", "years", "year", "role", "job",
+}
+
+SEMANTIC_STRONG_THRESHOLD = 0.45
+SEMANTIC_SOFT_THRESHOLD = 0.30
+
 
 def extract_text(file_storage):
     filename = file_storage.filename or ""
@@ -199,14 +237,6 @@ def extract_text(file_storage):
     return None, "Unsupported file"
 
 
-def infer_category_from_job_desc(job_description):
-    text = (job_description or "").lower()
-    for key, category in CATEGORY_KEYWORDS.items():
-        if key in text:
-            return category
-    return None
-
-
 def extract_skills(text):
     text = text or ""
     if nlp is not None:
@@ -224,6 +254,28 @@ def extract_skills(text):
     return sorted(set(matched))[:12]
 
 
+def infer_role_profile(job_description):
+    text = (job_description or "").lower()
+    for role_name, profile in ROLE_PROFILES.items():
+        if any(trigger in text for trigger in profile["triggers"]):
+            return role_name, profile["keywords"]
+
+    tokens = re.findall(r"[a-zA-Z][a-zA-Z0-9+#.-]{2,}", text)
+    fallback_keywords = []
+    seen = set()
+    for token in tokens:
+        t = token.lower()
+        if t in ROLE_FALLBACK_STOPWORDS:
+            continue
+        if t in seen:
+            continue
+        seen.add(t)
+        fallback_keywords.append(t)
+        if len(fallback_keywords) >= 15:
+            break
+    return "General Role", fallback_keywords
+
+
 def semantic_similarity(job_desc, resume_text):
     if embedder is None:
         return None
@@ -232,6 +284,26 @@ def semantic_similarity(job_desc, resume_text):
         return float(np.dot(embeddings[0], embeddings[1]))
     except Exception:
         return None
+
+
+def role_keyword_hits(resume_text, keywords):
+    text = (resume_text or "").lower()
+    matches = []
+    for kw in keywords:
+        key = kw.lower().strip()
+        if key and key in text:
+            matches.append(kw)
+    return matches
+
+
+def compute_role_match(semantic_score, keyword_hits, total_keywords):
+    sem = semantic_score if isinstance(semantic_score, (int, float)) else 0.0
+    if sem >= SEMANTIC_STRONG_THRESHOLD:
+        return True
+    if total_keywords <= 0:
+        return sem >= SEMANTIC_SOFT_THRESHOLD
+    coverage = len(keyword_hits) / total_keywords
+    return sem >= SEMANTIC_SOFT_THRESHOLD and (len(keyword_hits) >= 2 or coverage >= 0.2)
 
 
 @app.route("/api/health", methods=["GET"])
@@ -258,14 +330,13 @@ def predict():
         return jsonify({"error": "Too many files. Max 100."}), 400
 
     job_description = request.form.get("job_description", "") or DEFAULT_JOB_DESC
-    target_category = infer_category_from_job_desc(job_description)
-    if not target_category:
-        return jsonify({
-            "error": "Could not infer category from job description.",
-            "hint": "Include a clear role like 'Data Science', 'Java Developer', 'DevOps', etc."
-        }), 400
-
+    target_role, role_keywords = infer_role_profile(job_description)
     results = []
+    class_labels = list(label_encoder.classes_)
+    lower_to_index = {str(lbl).lower(): i for i, lbl in enumerate(class_labels)}
+    hire_index = lower_to_index.get("hire")
+    reject_index = lower_to_index.get("reject")
+
     for f in files:
         text, err = extract_text(f)
         if err:
@@ -278,25 +349,37 @@ def predict():
         vec = vectorizer.transform([text])
         proba = model.predict_proba(vec)[0]
         pred = int(model.predict(vec)[0])
-        predicted_category = label_encoder.inverse_transform([pred])[0]
+        predicted_category = str(label_encoder.inverse_transform([pred])[0])
         confidence = float(proba[pred])
-        label = "Relevant" if predicted_category == target_category else "Not Relevant"
+        prediction_lower = predicted_category.lower()
         sim = semantic_similarity(job_description, text)
+        matched_role_keywords = role_keyword_hits(text, role_keywords)
+        is_role_match = compute_role_match(sim, matched_role_keywords, len(role_keywords))
+        is_hire = prediction_lower == "hire"
+        label = "Relevant" if (is_hire and is_role_match) else "Not Relevant"
         skills = extract_skills(text)
+        hire_probability = float(proba[hire_index]) if hire_index is not None else None
+        reject_probability = float(proba[reject_index]) if reject_index is not None else None
 
         results.append({
             "filename": f.filename,
             "predicted_category": predicted_category,
-            "target_category": target_category,
             "prediction": label,
             "confidence": confidence,
+            "hire_reject_prediction": predicted_category,
+            "role_target": target_role,
+            "role_match": is_role_match,
+            "role_keyword_hits": matched_role_keywords,
+            "role_keywords_used": role_keywords,
+            "hire_probability": hire_probability,
+            "reject_probability": reject_probability,
             "semantic_score": sim,
             "matched_skills": skills,
         })
 
     return jsonify({
         "job_description": job_description,
-        "target_category": target_category,
+        "target_category": target_role,
         "count": len(results),
         "semantic_enabled": embedder is not None,
         "results": results,
